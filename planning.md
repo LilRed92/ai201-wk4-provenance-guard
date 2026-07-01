@@ -3,12 +3,12 @@
 ## Architecture Narrative
 
 When someone submits text to `POST /submit`, it gets run through two separate detection
-functions at the same time. The first one is a Groq LLM classifier — it looks at the
-writing semantically and basically asks "does this read like a human or an AI wrote it?"
+functions at the same time. The first one is a Groq LLM classifier. It looks at the
+writing and basically asks "does this read like a human or an AI wrote it?"
 The second is a stylometric analyzer I built in pure Python, which checks measurable
 things like how much sentence length varies, how diverse the vocabulary is (type-token
 ratio), and how dense the punctuation is. Both functions return a score from 0.0 to 1.0,
-and those get blended into a single confidence score using a weighted average. From there,
+and those get combined into a single confidence score using a weighted average. From there,
 the score maps to one of three labels. Everything gets logged to an audit file, and the
 response sends back the content ID, the attribution result, the confidence score, and the
 label.
@@ -16,8 +16,7 @@ label.
 The appeal flow is simpler. When a creator hits `POST /appeal` with their `content_id`
 and an explanation, the system finds that entry in the audit log, flips the status to
 `"under_review"`, and attaches their reasoning. It sends back a confirmation. I'm not
-doing any automated re-classification here — the point is that a human reviewer would
-look at flagged entries, not the system itself.
+doing any automated re-classification here. The point is that a human reviewer looks at flagged entries, not the system.
 
 ---
 
@@ -72,7 +71,7 @@ writing has. The tone stays weirdly consistent all the way through, which is act
 of the things the LLM picks up on.
 
 **Blind spots:**
-- Formal writing like academic papers or legal documents is going to be a problem — it's
+- Formal writing like academic papers or legal documents is going to be a problem. It's
   structured and clean in the same way AI is, so the LLM might over-score it.
 - If someone is a really polished writer who writes cleanly on purpose, they might get
   flagged. Not much I can do about that with this approach.
@@ -102,11 +101,13 @@ Measures punctuation marks per word.
 - AI writing uses fewer, more "standard" punctuation marks
 - Very low punctuation density can signal AI
 
-**Combined stylo_score:** Weighted average — SLV (40%) + TTR (40%) + PD (20%)
+**Combined stylo_score:** Weighted average: SLV (55%) + TTR (20%) + PD (25%)
+
+**UPDATE:** Reduced TTR's weight from 40% to 20% after Milestone 4 testing (original weights: SLV 40%, TTR 40%, PD 20%). TTR scores across all four test inputs only ranged from 0.10 to 0.14, which was too narrow to be pulling 40% of the stylo_score. Even though I called out short-text reliability as an anticipated edge case, the lack of range showed up across all input types, not just short ones, so keeping the original weight would've been giving too much influence to a metric that wasn't earning it.
 
 **Why AI writing differs:** LLMs generate text with statistically consistent sentence
 patterns. They don't naturally vary their cadence the way humans do when writing freely.
-Vocabulary in AI output is also more "model-characteristic" — it favors certain words and
+Vocabulary in AI output is also more "model-characteristic", it favors certain words and
 structures that appear frequently in training data.
 
 **Blind spots:**
@@ -120,8 +121,8 @@ structures that appear frequently in training data.
 
 **Formula:** `confidence = (0.6 × llm_score) + (0.4 × stylo_score)`
 
-The LLM signal carries more weight (60%) because it captures semantic meaning — something
-stylometrics cannot. Stylometrics is treated as corroborating evidence.
+The LLM signal carries more weight (60%) because it captures semantic meaning, something
+stylometrics cannot. Stylometrics is treated as corroborating evidence, it simply backs up the LLM score.
 
 **Thresholds:**
 
@@ -133,9 +134,9 @@ stylometrics cannot. Stylometrics is treated as corroborating evidence.
 
 **Why these thresholds?**
 I set the `likely_ai` threshold high at 0.70 because a false positive is way worse than
-a false negative here — if the system wrongly flags a human creator's work as AI, that
+a false negative. If the system wrongly flags a human creator's work as AI, that
 actually hurts someone. Better to land in "uncertain" than to make a wrong confident call.
-The uncertain band being wide (0.36–0.69) is intentional too — I'd rather the system admit
+The uncertain band being wide (0.36–0.69) is intentional too. I'd rather the system admit
 it doesn't know than guess and be wrong.
 
 ---
@@ -180,10 +181,9 @@ Our analysis indicates this content was likely written by a human
 2. The entry's `status` field is updated from `"classified"` to `"under_review"`.
 3. The `appeal_reasoning` field is added to the entry.
 4. An `appeal_timestamp` is recorded.
-5. A confirmation response is returned to the caller.
+5. The system sends a confirmation back to the creator.
 
-**What a human reviewer would see:** The `GET /log` endpoint returns all entries including
-updated ones. A reviewer would filter for `"status": "under_review"` to find pending appeals.
+**What a human reviewer would see:** The `GET /log` endpoint returns all entries, including updated ones. Anyone working through the appeal queue would just filter for `"status": "under_review"`.
 
 **No automated re-classification** is performed.
 
@@ -197,7 +197,7 @@ updated ones. A reviewer would filter for `"status": "under_review"` to find pen
 - 10 requests per minute per IP
 - 100 requests per day per IP
 
-**Reasoning:** A real creator submitting their own work isn't going to send 10 requests a minute — that's
+**Reasoning:** A real creator submitting their own work isn't going to send 10 requests a minute. That's
 already way more than normal. 10/min is enough headroom for anyone using the app legitimately
 while still stopping bots. 100/day is generous for a single person but would make any kind
 of automated bulk run impractical.
@@ -209,13 +209,14 @@ of automated bulk run impractical.
 1. **Formal human writing (academic/legal):** This one worries me a little. Academic and
    legal writing is so structured that both signals might call it AI even when it's not. I'd
    expect something like a research paper to land around 0.55–0.65 and get the "uncertain"
-   label. I think that's actually fine — it's more honest than confidently mislabeling it.
+   label. I think that's actually fine. It's more honest than confidently mislabeling it.
 
 2. **Short text (< 50 words):** The stylometric signal basically breaks down here. You can't
    compute meaningful sentence variance from two or three sentences. I want the system to
    catch this and flag it in the response so the confidence score isn't taken at face value.
+   **Milestone 4 Update:** Updated the weight metric for TTR (from 40% to 20%) in response to this limitation and observed lack of variable range in scoring.
 
-3. **Non-native English speakers:** Both signals could misfire here pretty easily — formal
+3. **Non-native English speakers:** Both signals could misfire here pretty easily. Formal
    grammatical patterns look a lot like AI output. This is honestly the biggest reason I
    wanted the uncertain band to be wide and the appeal process to be low-friction.
 

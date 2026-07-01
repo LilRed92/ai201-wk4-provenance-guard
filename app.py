@@ -7,6 +7,9 @@ from flask_limiter.util import get_remote_address
 
 from auditor import read_entries, write_entry
 from detector import classify_with_llm
+from scorer import calculate_confidence, get_attribution
+from stylometrics import analyze_stylometrics
+
 
 app = Flask(__name__)
 
@@ -33,16 +36,13 @@ def submit():
     # Signal 1: Groq LLM classifier
     llm_score, llm_reasoning = classify_with_llm(text)
 
-    # Signal 2 and final scoring are added in Milestone 4 — placeholder for now
-    stylo_score = 0.5
-    confidence = round((0.6 * llm_score) + (0.4 * stylo_score), 4)
+    # Signal 2: Stylometric scores
+    stylo_score, stylo_breakdown = analyze_stylometrics(text)
 
-    if confidence >= 0.70:
-        attribution = "likely_ai"
-    elif confidence <= 0.35:
-        attribution = "likely_human"
-    else:
-        attribution = "uncertain"
+    # Final combined score
+    confidence = calculate_confidence(llm_score, stylo_score)
+    attribution = get_attribution(confidence)
+
 
     # Transparency labels are implemented in Milestone 5 — placeholder for now
     label = "Transparency label coming in Milestone 5."
@@ -55,6 +55,7 @@ def submit():
         "confidence": confidence,
         "llm_score": llm_score,
         "stylo_score": stylo_score,
+        "stylo_breakdown": stylo_breakdown,
         "status": "classified",
     }
     write_entry(entry)
@@ -68,6 +69,7 @@ def submit():
             "llm_score": llm_score,
             "llm_reasoning": llm_reasoning,
             "stylo_score": stylo_score,
+            "stylo_breakdown": stylo_breakdown,
         },
     })
 
