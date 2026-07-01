@@ -1,0 +1,13 @@
+=== RATE LIMIT TEST (12 rapid requests) ===
+Request 1: HTTP Status 200
+Request 2: HTTP Status 200
+Request 3: HTTP Status 200
+Request 4: HTTP Status 200
+Request 5: HTTP Status 200
+Request 6: HTTP Status 200
+Request 7: HTTP Status 200
+Request 8: HTTP Status 200
+Request 9: HTTP Status 200
+Request 10: HTTP Status 200
+Request 11: HTTP Status 429
+Request 12: HTTP Status 429

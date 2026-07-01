@@ -5,10 +5,11 @@ from flask import Flask, jsonify, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-from auditor import read_entries, write_entry
+from auditor import read_entries, update_entry, write_entry
 from detector import classify_with_llm
 from scorer import calculate_confidence, get_attribution
 from stylometrics import analyze_stylometrics
+from labeler import generate_label
 
 
 app = Flask(__name__)
@@ -43,9 +44,8 @@ def submit():
     confidence = calculate_confidence(llm_score, stylo_score)
     attribution = get_attribution(confidence)
 
-
-    # Transparency labels are implemented in Milestone 5 — placeholder for now
-    label = "Transparency label coming in Milestone 5."
+    # Output to users
+    label = generate_label(attribution, confidence)
 
     entry = {
         "content_id": content_id,
@@ -73,6 +73,31 @@ def submit():
         },
     })
 
+@app.route("/appeal", methods=["POST"])
+def appeal():
+    body = request.get_json(force=True)
+    content_id = body.get("content_id", "").strip()
+    creator_reasoning = body.get("creator_reasoning", "").strip()
+
+    if not content_id or not creator_reasoning:
+        return jsonify({"error": "Both 'content_id' and 'creator_reasoning' are required."}), 400
+
+    updates = {
+        "status": "under_review",
+        "appeal_reasoning": creator_reasoning,
+        "appeal_timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    found = update_entry(content_id, updates)
+
+    if not found:
+        return jsonify({"error": "content_id not found in audit log."}), 404
+
+    return jsonify({
+        "status": "appeal_received",
+        "content_id": content_id,
+        "message": "Your appeal has been logged and is under review.",
+    })
 
 @app.route("/log", methods=["GET"])
 def get_log():
